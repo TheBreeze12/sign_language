@@ -20,6 +20,7 @@ model/*.pth
 checkpoint.pth
 checkpoints/
 *.pkl
+*.zip
 
 # 5. 忽略虚拟环境
 venv/
