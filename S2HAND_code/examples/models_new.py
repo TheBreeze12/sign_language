@@ -217,11 +217,12 @@ class Model(nn.Module):
             # Renderer & Texture Estimation & Light Estimation
             if self.render_choice == 'NR':
                 # Define a neural renderer
-                import neural_renderer as nr
+                # import neural_renderer as nr
                 if 'lights' in args.train_requires or 'lights' in args.test_requires:
-                    renderer_NR = nr.Renderer(image_size=args.image_size,background_color=[1,1,1],camera_mode='projection',orig_size=224,light_intensity_ambient=None, light_intensity_directional=None,light_color_ambient=None, light_color_directional=None,light_direction=None)#light_intensity_ambient=0.9
+                    renderer_NR = None
+                    #light_intensity_ambient=0.9
                 else:
-                    renderer_NR = nr.Renderer(image_size=args.image_size,camera_mode='projection',orig_size=224)
+                    renderer_NR = None
                 #import pdb;pdb.set_trace()
                 self.renderer_NR = renderer_NR
 
@@ -261,6 +262,8 @@ class Model(nn.Module):
         #import numpy as np
         #np.sum([p.numel() for p in model.parameters()]).item()
     def predict_singleview(self, images, mask_images, Ks, task, requires, gt_verts, bgimgs):
+        #以后删除
+        print("🚀 predict_singleview 正在运行...")
         vertices, faces, joints, shape, pose, trans, segm_out, textures, lights = None, None, None, None, None, None, None, None, None
         re_images, re_sil, re_img, re_depth, gt_depth = None, None, None, None, None
         pca_text, face_textures = None, None
@@ -361,17 +364,22 @@ class Model(nn.Module):
                     texture_size = 1
                     textures = torch.ones(faces.shape[0], faces.shape[1], texture_size, texture_size, texture_size, 3, dtype=torch.float32).to(vertices.device)
                 
-                self.renderer_NR.R = torch.unsqueeze(torch.tensor([[1,0,0],[0,1,0],[0,0,1]]).float(),0).repeat(Ks.shape[0],1,1).to(vertices.device)
-                self.renderer_NR.t = torch.unsqueeze(torch.tensor([[0,0,0]]).float(),0).repeat(Ks.shape[0],1,1).to(vertices.device)
-                self.renderer_NR.K = Ks[:,:,:3].to(vertices.device)
-                self.renderer_NR.dist_coeffs = self.renderer_NR.dist_coeffs.to(vertices.device)
-                #import pdb; pdb.set_trace()
+                if self.renderer_NR is not None:
+                    self.renderer_NR.R = torch.unsqueeze(torch.tensor([[1,0,0],[0,1,0],[0,0,1]]).float(),0).repeat(Ks.shape[0],1,1).to(vertices.device)
+                    self.renderer_NR.t = torch.unsqueeze(torch.tensor([[0,0,0]]).float(),0).repeat(Ks.shape[0],1,1).to(vertices.device)
+                    self.renderer_NR.K = Ks[:,:,:3].to(vertices.device)
+                    self.renderer_NR.dist_coeffs = self.renderer_NR.dist_coeffs.to(vertices.device)
+                    #import pdb; pdb.set_trace()
                 
                 face_textures = textures.view(textures.shape[0],textures.shape[1],1,1,1,3)
                 
-                re_img,re_depth,re_sil = self.renderer_NR(vertices, faces, torch.tanh(face_textures), mode=None)
+                # re_img,re_depth,re_sil = self.renderer_NR(vertices, faces, torch.tanh(face_textures), mode=None)
+                re_img = torch.zeros(1).to(vertices.device)
+                re_depth = torch.zeros(1).to(vertices.device)
+                re_sil = torch.zeros(1).to(vertices.device)                
 
-                re_depth = re_depth * (re_depth < 1).float()#set 100 into 0
+                # re_depth = re_depth * (re_depth < 1).float()#set 100 into 0
+                # 2. 赋予占位符（使用 Tensor 而不是 None，防止比较运算报错）
 
                 #import pdb; pdb.set_trace()
                 if self.get_gt_depth and gt_verts is not None:

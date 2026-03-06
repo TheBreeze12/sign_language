@@ -18,7 +18,7 @@ def load_model(model, args):
         print('loading the model from:', args.pretrain_segmnet)
         logging.info('pretrain_segmentation_model: %s' %args.pretrain_segmnet)
     if args.pretrain_model is not None:
-        state_dict = torch.load(args.pretrain_model)
+        state_dict = torch.load(args.pretrain_model,weights_only=False)
         #import pdb; pdb.set_trace()
         # dir(model)
         if 'encoder' in state_dict.keys() and hasattr(model,'encoder'):
@@ -116,16 +116,3 @@ def dump(pred_out_path, xyz_pred_list, verts_pred_list):
                 verts_pred_list
             ], fo)
     print('Dumped %d joints and %d verts predictions to %s' % (len(xyz_pred_list), len(verts_pred_list), pred_out_path))
-
-
-
-
-
-
-
-
-
-
-
-
-

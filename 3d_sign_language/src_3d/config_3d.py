@@ -48,3 +48,8 @@ SIGMA=1.7
 
 #debug目录
 DEBUG_OUT_DIR="/home/jm802/sign_language/debug_results"
+
+#S2HAND路径配置
+S2HAND_SDK_PATH=S2HAND_SDK_PATH = "/home/jm802/sign_language/S2HAND_code"
+PERTAINED_MODEL="/home/jm802/sign_language/S2HAND_code/checkpoints/checkpoint.pth"
+DB_ROOT="/home/jm802/sign_language/result_3d/database_npz"
