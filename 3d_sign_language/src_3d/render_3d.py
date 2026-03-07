@@ -37,29 +37,30 @@ def render_npz_to_video(npz_path, output_video):
 
     data = np.load(npz_path)
     verts_seq = data['vertices']  # (N, 778, 3)
+    #检查左手
+    is_left=data.get('is_flipped',False)
     
     #  获取面片拓扑
     try:
         faces = load_mano_faces()
+        if is_left:
+            faces=faces[:,[0,2,1]]
     except Exception as e:
         print(f"❌ 加载面片失败: {e}")
         return
 
     # 初始化Pyrender 场景 
     # 背景设为白色，环境光设为中等
-    scene = pyrender.Scene(ambient_light=[0.5, 0.5, 0.5], bg_color=[1.0, 1.0, 1.0])
+    scene = pyrender.Scene(ambient_light=[0.6, 0.6, 0.6], bg_color=[1.0, 1.0, 1.0])
 
     # 设置相机：yfov决定视角宽度
     camera = pyrender.PerspectiveCamera(yfov=np.pi / 3.0)
-    # 相机 pose：z轴后退 0.45米，正对原点
-    cam_pose = np.array([
-        [1, 0, 0, 0],
-        [0, 1, 0, 0],
-        [0, 0, 1, 0.45], 
-        [0, 0, 0, 1]
-
-
-    ])
+    
+    #首先计算第一帧vertices中心位置，相机指向第一帧中心，防止手部在画面中位置过小
+    mean_vert=np.mean(verts_seq[0], axis=0)
+    cam_pose = np.eye(4)
+    #z轴高度为0.22
+    cam_pose[:3, 3] = mean_vert + np.array([0, 0, 0.22])
     scene.add(camera, pose=cam_pose)
     
     # 添加主光源
@@ -67,25 +68,36 @@ def render_npz_to_video(npz_path, output_video):
     scene.add(light, pose=cam_pose)
     
     # 初始化离线渲染器
-    renderer = pyrender.OffscreenRenderer(448, 448)
+    renderer = pyrender.OffscreenRenderer(1024, 1024)
     
     # 初始化视频写入器
     os.makedirs(os.path.dirname(output_video), exist_ok=True)
-    video_writer = cv2.VideoWriter(output_video, cv2.VideoWriter_fourcc(*'mp4v'), 25, (448, 448))#这里要修改，我不仅要mp4，可能还需要avc1
+    # 使用 avc1 编码，这类视频在 Web 和大多数播放器兼容性更好
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v') 
+    video_writer = cv2.VideoWriter(output_video, fourcc, 5, (1024, 1024))
 
     print(f"🚀 开始渲染视频: {npz_path}")
     for i in tqdm(range(len(verts_seq))):
         # 1. 创建网格对象
-        mesh = trimesh.Trimesh(vertices=verts_seq[i], faces=faces)
+        mesh = trimesh.Trimesh(vertices=verts_seq[i], faces=faces,process=True)
+
+        # 制计算面法线和顶点法线，这能显著解决“糊”的问题，让肌肉线条清晰
+        mesh.fix_normals()
         
         # 2. 坐标系对齐：绕 Y 轴旋转 180 度，使手背朝向镜头（符合图像视觉）
         rot_matrix = trimesh.transformations.rotation_matrix(np.radians(180), [0, 1, 0])
         mesh.apply_transform(rot_matrix)
         
-        # 3. 将网格加入场景
-        render_mesh = pyrender.Mesh.from_trimesh(mesh)
-        mesh_node = scene.add(render_mesh)
+        # 3. 材质调节，将网格加入场景
+        material = pyrender.MetallicRoughnessMaterial(
+            metallicFactor=0.2,
+            roughnessFactor=0.6,
+            baseColorFactor=[0.5, 0.5, 0.5, 1.0]
+        )
         
+        render_mesh = pyrender.Mesh.from_trimesh(mesh, material=material)
+        mesh_node = scene.add(render_mesh)
+
         # 4. 渲染并写入视频帧
         color, _ = renderer.render(scene)
         video_writer.write(cv2.cvtColor(color, cv2.COLOR_RGB2BGR))

@@ -114,8 +114,7 @@ def run_batch_inference(model, device, folder_path, is_flipped,batch_size=32):
         # 1. X 轴取反：将坐标从伪右手空间还原到真实的左手空间
         joints[:, :, 0] = -joints[:, :, 0]
         vertices[:, :, 0] = -vertices[:, :, 0]
-        # 注意：这里的 vertices 已经变成了左手拓扑，
-        # 渲染时必须配合 MANO_LEFT.pkl 并交换面片索引！
+        # 注意：这里的 vertices 已经变成了左手拓扑，渲染时必须配合 MANO_LEFT.pkl 并交换面片索引！
 
     
     return {"joints": joints, "vertices": vertices, "pose": pose, "shape": shape, "camera": None}
