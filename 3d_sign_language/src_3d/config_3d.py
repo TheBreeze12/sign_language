@@ -50,16 +50,15 @@ SIGMA=1.7
 DEBUG_OUT_DIR="/home/jm802/sign_language/debug_results"
 
 #SHaMeR路径配置
-S2HAND_PATH = "/home/jm802/sign_language/HaMeR_code"
+S2HAND_PATH= "/home/jm802/sign_language/s2hand_code/S2HAND"
 
-
+PERTAINED_MODEL="/home/jm802/sign_language/s2hand_code/checkpoints/checkpoints.pth"
 
 DB_ROOT="/home/jm802/sign_language/result_3d/database_npz"
 
 RIGHT_PKL_PATH="/home/jm802/sign_language/3d_sign_language/mano_v1_2/models/MANO_RIGHT.pkl"
 
-LEFT_PKL_PATH="/home/jm802/sign_language/3d_sign_language/mano_v1_2/models/MANO_LEFT.pkl"
-
+TARGET_WORDS_FILE="/home/jm802/sign_language/data/idx2name_300.txt"
 
 FACTOR=2
 SCALE_FACTOR=0.003
