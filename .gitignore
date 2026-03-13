@@ -22,7 +22,7 @@ checkpoint.pth
 checkpoints/
 *.pkl
 *.zip
-IntagHand
+misc
 
 # 5. 忽略虚拟环境
 venv/
