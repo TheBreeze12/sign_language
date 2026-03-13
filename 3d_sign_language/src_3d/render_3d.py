@@ -177,11 +177,11 @@ def export_glb_sequence(word_dir, output_folder):
 
 
 if __name__ == "__main__":
-   # 自动查找前 10 个测试样本
+   # 自动查找所有
     base_db = "/home/jm802/sign_language/result_3d/database_npz/"
     all_dirs = sorted(glob.glob(os.path.join(base_db, "*/*/")))
     
-    for i, sample_path in enumerate(all_dirs[:10]):
+    for i, sample_path in enumerate(all_dirs[:]):
         temp_dir = sample_path.rstrip('/')
         vid_id = os.path.basename(temp_dir)
         word = os.path.basename(os.path.dirname(temp_dir))

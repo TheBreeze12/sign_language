@@ -339,6 +339,24 @@ def process_video_task(args):
 
 def process_dataset():
     logger.info("Starting ASL Citizen 3D Hand ROI Preprocessing...")
+
+    # 读取目标词汇白名单 (300个词)
+    target_words_file = config_3d.TARGET_WORDS_FILE
+
+    words_needed = set()
+
+    if os.path.exists(target_words_file):
+        with open(target_words_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line: 
+                    continue
+                word = line.split()[-1].strip().upper()
+                words_needed.add(word)
+        logger.info(f"✅ 成功加载了 {len(words_needed)} 个目标词汇进行过滤。")
+    else:
+        logger.error(f"❌ 找不到词汇表文件: {target_words_file}")
+        return
     
     # 读取 ASL Citizen 表格 (TSV 或 CSV 格式)
     # 获取 CSV 路径（确保 config_3d.py 里的 CSV_PATH 指向了 splits/ 下的文件）
@@ -355,19 +373,31 @@ def process_dataset():
         for row in reader:
             video_file = row.get('Video file')
             gloss = row.get('Gloss')
-            if video_file and gloss:
-                tasks.append((video_file, gloss))
+            
+            # 如果当前视频的词语还在我们的名单中
+            if video_file and gloss and (gloss in words_needed):
+                current_gloss_upper = gloss.strip().upper()
                 
-    logger.info(f"Total videos to process: {len(tasks)}")
+                if current_gloss_upper in words_needed:
+                    tasks.append((video_file, gloss)) # 塞进任务列表时保留原始 gloss 避免路径出错
+                    # 抓到一个，立刻把它从通缉名单中划掉
+                    words_needed.remove(current_gloss_upper)
+            
+            # 极致优化：如果 300 个词都找齐了，直接提前结束读取 CSV，不用把几十万行读完
+            if len(words_needed) == 0:
+                logger.info("🎉 300 个词汇的样本已全部集齐，提前结束扫描！")
+                break
+                
+    logger.info(f"Total videos to process: {len(tasks)} (每个词语仅保留1个视频)")
 
-    # 🌟【开启测试模式】：只取前 1 个视频处理
-    tasks = tasks[:1]
-    logger.info(f"🚀 TEST MODE: Processing only {len(tasks)} video.")
+
+
+    logger.info(f"🚀 正式任务开始: 正在处理 {len(tasks)} 个视频样本。")
     
     success_count, fail_count = 0, 0
     
     #记得这里改回来
-    with Pool(processes=1,initializer=init_worker) as pool:
+    with Pool(processes=8,initializer=init_worker) as pool:
         results = list(tqdm(pool.imap_unordered(process_video_task, tasks), total=len(tasks), desc="Processing Videos"))
 
         with open(os.path.join(config_3d.LOG_DIR, "failed_videos.txt"), "w") as f_fail:
@@ -383,6 +413,12 @@ def process_dataset():
     logger.info(f"Total Attempted: {len(tasks)}")
     logger.info(f"Successful: {success_count}")
     logger.info(f"Failed: {fail_count}")
+
+    # 统计一下有没有哪些词运气不好，连一个可用的视频都没找到
+    if len(words_needed) > 0:
+        logger.warning(f"⚠️ 警告：有 {len(words_needed)} 个词语在 CSV 中没有找到对应的视频！")
+        logger.warning(f"未找到的词语: {words_needed}")
+        
     logger.info("Preprocessing completed.")
 
 if __name__ == "__main__":
