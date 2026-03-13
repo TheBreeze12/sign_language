@@ -16,11 +16,13 @@ data/
 
 # 4. 忽略模型权重和骨架文件 (这是最核心的修改)
 # 绝对不要把几个 GB 的 pth 或 pkl 传到 GitHub
-model/*.pth
+*.pth
 checkpoint.pth
 checkpoints/
 *.pkl
 *.zip
+IntagHand
+
 
 # 5. 忽略虚拟环境
 venv/
