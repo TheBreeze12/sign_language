@@ -195,4 +195,4 @@ if __name__ == "__main__":
         
         out_path = f"/home/jm802/sign_language/result_3d/glb_test/{word}_{vid_id}/"
         print(f"📦 [{i+1}/10] 任务开始: {word}")
-        export_glb_sequence(sample_path, out_path)
+        export_glb_sequence(sample_path, out_path) 
