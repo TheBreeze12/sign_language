@@ -30,7 +30,7 @@ from src_3d import config_3d
 
 # 配置日志系统
 def setup_logging():
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    log_dir = config_3d.LOG_DIR
     os.makedirs(log_dir, exist_ok=True)
     # 以当前时间命名日志文件
     log_filename = datetime.datetime.now().strftime("inference_%Y%m%d_%H%M%S.log")

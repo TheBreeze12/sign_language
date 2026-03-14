@@ -60,6 +60,9 @@ RIGHT_PKL_PATH="/home/jm802/sign_language/3d_sign_language/mano_v1_2/models/MANO
 
 TARGET_WORDS_FILE="/home/jm802/sign_language/data/idx2name_300.txt"
 
+BASE_DB="/home/jm802/sign_language/result_3d/database_npz/"
+
+
 FACTOR=2
 SCALE_FACTOR=0.003
 FOCAL_CONSTANT=20.0

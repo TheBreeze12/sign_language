@@ -178,14 +178,23 @@ def export_glb_sequence(word_dir, output_folder):
 
 if __name__ == "__main__":
    # 自动查找所有
-    base_db = "/home/jm802/sign_language/result_3d/database_npz/"
+    base_db = config_3d.BASE_DB
     all_dirs = sorted(glob.glob(os.path.join(base_db, "*/*/")))
+
+    total_count = len(all_dirs)
+    print(f"📂 探测完成，共发现 {total_count} 个视频样本待渲染。")
     
-    for i, sample_path in enumerate(all_dirs[:]):
+    for i, sample_path in enumerate(all_dirs):
         temp_dir = sample_path.rstrip('/')
         vid_id = os.path.basename(temp_dir)
         word = os.path.basename(os.path.dirname(temp_dir))
         
-        out_path = f"/home/jm802/sign_language/result_3d/glb_test/{word}_{vid_id}/"
-        print(f"📦 [{i+1}/10] 任务开始: {word}")
-        export_glb_sequence(sample_path, out_path) 
+        out_path = f"/home/jm802/sign_language/result_3d/glb_models/{word}_{vid_id}/"
+
+        print(f"📦 [{i+1}/{total_count}] 正在渲染词条: {word} (ID: {vid_id})")
+        
+        try:
+            export_glb_sequence(sample_path, out_path)
+        except Exception as e:
+            print(f"❌ 渲染失败 {word}_{vid_id}: {str(e)}")
+            continue # 某个视频崩了不影响全局
