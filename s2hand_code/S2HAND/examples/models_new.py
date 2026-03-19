@@ -165,6 +165,7 @@ class texture_light_estimator(nn.Module):
         lights = self.light_reg(base_features)#[b,11]
         #import pdb; pdb.set_trace()
         #textures = torch.clamp(textures,0,1)
+        #textures = torch.clamp(textures,0,1)
         #textures = torch.clamp(textures,min=0)
         #lights = torch.clamp(lights,min=0)
         #import pdb; pdb.set_trace()
@@ -255,7 +256,7 @@ class Model(nn.Module):
                 #Check
             else:
                 self.get_gt_depth = False
-            
+
         else:
             self.regress_mode = None
         #import pdb; pdb.set_trace()
@@ -275,7 +276,7 @@ class Model(nn.Module):
                 #import pdb; pdb.set_trace()
                 images_this = pad(images_this)#[b,3,256,256]
             est_hm_list, encoding = self.rgb2hm(images_this)
-            
+
             # est_hm_list: len() 2; [b, 21, 64, 64]
             # this is not well differentiable
             #est_pose_uv = util.compute_uv_from_heatmaps(est_hm_list[-1], images_this.shape[2:4])#images.shape[2:4] torch.Size([224, 224]))  # B x K x 3
@@ -283,23 +284,23 @@ class Model(nn.Module):
             for est_hm in est_hm_list:
                 est_pose_uv = util.compute_uv_from_integral(est_hm, images_this.shape[2:4])#check
                 est_pose_uv_list.append(est_pose_uv)
-            
+
             output['hm_list'] = est_hm_list
             #output['hm_pose_uv'] = est_pose_uv#[b,21,3]
             output['hm_pose_uv_list'] = est_pose_uv_list
             output['hm_j2d_list'] = [hm_pose_uv[:,:,:2] for hm_pose_uv in est_pose_uv_list]
-        if task == 'hm_train': 
+        if task == 'hm_train':
             #return est_pose_uv, est_hm_list
             return output
         else:
             if self.regress_mode == 'hm2mano':
                 # 2. Hand shape and pose estimate
                 joints, vertices, faces, pose, shape, features = self.hm2hand(est_hm_list, encoding)
-                # joints: [b,21,3]; vertices: [b,778,3]; faces: [b,1538,3]; 
-                # pose: [b,6]; shape: [b,10]; features: [b,4096]; 
+                # joints: [b,21,3]; vertices: [b,778,3]; faces: [b,1538,3];
+                # pose: [b,6]; shape: [b,10]; features: [b,4096];
             elif self.regress_mode == 'mano' or self.regress_mode == 'mano1':
                 features, low_features = self.encoder(images)#[b,1536]
-                
+
                 if self.use_2d_as_attention:
                     attention_2d = self.heatmap_attention(encoding[-1])
                     features = torch.mul(features, attention_2d)
@@ -314,7 +315,7 @@ class Model(nn.Module):
                         #import pdb; pdb.set_trace()
                         joints = joints + joints_res
             #print(time.time() - end)
-            #print('Time {batch_time.val:.0f}\t'.format(batch_time))   
+            #print('Time {batch_time.val:.0f}\t'.format(batch_time))
             output['joints'] = joints
             output['vertices'] = vertices
             output['pose'] = pose
@@ -323,7 +324,7 @@ class Model(nn.Module):
             output['trans'] = trans
             output['rot'] = rot
             output['tsa_poses'] = tsa_poses
-            
+
             #import pdb; pdb.set_trace()
             # 3. Texture & Lighting Estimation
             if 'textures' in requires or 'lights' in requires:
@@ -332,7 +333,7 @@ class Model(nn.Module):
                 textures, lights = self.texture_light_from_low(low_features)
                 #print(time.time() - end)
                 #import pdb; pdb.set_trace()
-                if 'lights' in requires:                     
+                if 'lights' in requires:
                     self.renderer_NR.light_intensity_ambient = lights[:,0].to(vertices.device)
                     self.renderer_NR.light_intensity_directional = lights[:,1].to(vertices.device)
                     self.renderer_NR.light_color_ambient = lights[:,2:5].to(vertices.device)
@@ -361,20 +362,20 @@ class Model(nn.Module):
                 if textures is None:
                     texture_size = 1
                     textures = torch.ones(faces.shape[0], faces.shape[1], texture_size, texture_size, texture_size, 3, dtype=torch.float32).to(vertices.device)
-                
+
                 if self.renderer_NR is not None:
                     self.renderer_NR.R = torch.unsqueeze(torch.tensor([[1,0,0],[0,1,0],[0,0,1]]).float(),0).repeat(Ks.shape[0],1,1).to(vertices.device)
                     self.renderer_NR.t = torch.unsqueeze(torch.tensor([[0,0,0]]).float(),0).repeat(Ks.shape[0],1,1).to(vertices.device)
                     self.renderer_NR.K = Ks[:,:,:3].to(vertices.device)
                     self.renderer_NR.dist_coeffs = self.renderer_NR.dist_coeffs.to(vertices.device)
                     #import pdb; pdb.set_trace()
-                
+
                 face_textures = textures.view(textures.shape[0],textures.shape[1],1,1,1,3)
-                
+
                 # re_img,re_depth,re_sil = self.renderer_NR(vertices, faces, torch.tanh(face_textures), mode=None)
                 re_img = torch.zeros(1).to(vertices.device)
                 re_depth = torch.zeros(1).to(vertices.device)
-                re_sil = torch.zeros(1).to(vertices.device)                
+                re_sil = torch.zeros(1).to(vertices.device)
 
                 # re_depth = re_depth * (re_depth < 1).float()#set 100 into 0
                 # 2. 赋予占位符（使用 Tensor 而不是 None，防止比较运算报错）
@@ -384,7 +385,7 @@ class Model(nn.Module):
                     gt_depth = self.renderer_NR(gt_verts, faces, mode='depth')
                     gt_depth = gt_depth * (gt_depth < 1).float()#set 100 into 0
                 #import pdb; pdb.set_trace()
-            
+
             output['faces'] = faces
             output['re_sil'] = re_sil
             output['re_img'] = re_img
@@ -394,12 +395,12 @@ class Model(nn.Module):
                 output['maskRGBs'] = images.mul((re_sil>0).float().unsqueeze(1).repeat(1,3,1,1))
             output['face_textures'] = face_textures
             output['render'] = self.renderer_NR
-            #output[''] = 
+            #output[''] =
             # Perceptual calculation
             if 'percep_feat' in requires and re_img is not None:
                 # only use foreground part
                 #import pdb; pdb.set_trace()
-                
+
                 #perc_loss = self.perc_crit(torch.mul(images,re_sil.detach().unsqueeze(1)),re_img)
                 #perc_features = self.perc_crit.extract_features(torch.mul(images,re_sil.detach().unsqueeze(1)),re_img)
                 #in_percep, in_percep_low = self.percep_encoder(torch.mul(images,re_sil.detach().unsqueeze(1)))
@@ -423,10 +424,10 @@ class Model(nn.Module):
                 #output['perc_features'] = perc_features
             # Network stacked
             if 'stacked' in requires:
-                
+
                 new_img = torch.where(re_img>0,re_img,bgimgs).detach()
                 #import pdb;pdb.set_trace()
-                
+
                 if self.regress_mode == 'mano':
                     features_s, low_features_s = self.encoder(new_img)#[b,1536]
                     textures_s, lights_s = self.texture_light_from_low(low_features_s)
@@ -469,7 +470,7 @@ class Model(nn.Module):
                     output['re_sil_s'] = re_sil_s
                     output['new_img'] = new_img
                     output['new_maskimg'] = mask_img_s
-            
+
             '''
             if 'feats' in requires and re_img is not None:
                 feats_mask = self.encoder(mask_images)
@@ -481,7 +482,7 @@ class Model(nn.Module):
                 cv_images[:,0,:,:]=images[:,2,:,:]
                 cv_images[:,1,:,:]=images[:,1,:,:]
                 cv_images[:,2,:,:]=images[:,0,:,:]
-                
+
                 #images = re_img.permute(0,2,3,1)*255
                 #import pdb; pdb.set_trace()
                 re_img_mix = torch.where(re_img>0,re_img,images)
@@ -490,7 +491,7 @@ class Model(nn.Module):
                 cv_re_img[:,0,:,:]=re_img_mix[:,2,:,:]
                 cv_re_img[:,1,:,:]=re_img_mix[:,1,:,:]
                 cv_re_img[:,2,:,:]=re_img_mix[:,0,:,:]
-                
+
                 in_percep = self.hand_det(cv_images)# cv_images: GBR 0-255 [b,3,224,224]
                 #
                 out_percep = self.hand_det(cv_re_img)# [b,22,28,28]
