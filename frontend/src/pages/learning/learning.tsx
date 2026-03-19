@@ -2,10 +2,9 @@ import Banana from '../../assets/image/banana.png'
 import Hello from '../../assets/image/hello.png'
 import Baby from '../../assets/image/baby.png'
 import Bread from '../../assets/image/bread.png'
-import Halloween from '../../assets/image/halloween.png'
+import Halloween from '../../assets/image/Halloween.png'
 
-import banana from '../../assets/video/banana.mp4'
-
+import DynamicWordBox from '../../shared/components/DynamicWordBOX.tsx';
 
 import '../../styles/learning.css'
 import {useRef} from "react";
@@ -13,14 +12,11 @@ import {useRef} from "react";
 export default function Learning() {
     const sliderRef = useRef<HTMLDivElement>(null);
 
-    // 下一张的逻辑
+    // 下一张的逻辑（保持你原有的原生 DOM 操作）
     const handleNext = () => {
-        // 确保 sliderRef.current 存在（不是 null）
         if (sliderRef.current) {
             const slider = sliderRef.current;
-            const items = slider.children; // 获取 slider 下所有的子元素 (.box)
-
-            // 原理：appendChild 会把已存在的元素移动到末尾
+            const items = slider.children;
             if (items.length > 0) {
                 slider.appendChild(items[0]);
             }
@@ -32,56 +28,36 @@ export default function Learning() {
         if (sliderRef.current) {
             const slider = sliderRef.current;
             const items = slider.children;
-
-            // 原理：prepend 会把已存在的元素移动到开头
             if (items.length > 0) {
                 slider.prepend(items[items.length - 1]);
             }
         }
     }
 
+    // 把你要展示的单词和封面图配置成一个数组，方便循环渲染
+    const vocabularyList = [
+        { word: 'BANANA', img: Banana },
+        { word: 'HELLO', img: Hello },
+        { word: 'BABY', img: Baby },
+        { word: 'BREAD', img: Bread },
+        { word: 'HALLOWEEN', img: Halloween },
+    ];
 
     return (
         <div className='container'>
+            {/* 轮播图主体 */}
             <div className='slider' ref={sliderRef}>
-
-                <div className='box'>
-                    <img src={Banana} alt="banana" className='preview'/>
-                    <div className='clipBox'>
-                        <video src={banana} muted loop playsInline autoPlay />
-                    </div>
-                </div>
-
-                <div className='box'>
-                    <img src={Hello} alt="hello" className='preview'/>
-                    <div className='clipBox'>
-                        <video src="/video/hello.mp4" muted loop playsInline />
-                    </div>
-                </div>
-
-                <div className='box'>
-                    <img src={Baby} alt="baby" className='preview'/>
-                    <div className='clipBox'>
-                        <video src="/video/baby.mp4" muted loop playsInline />
-                    </div>
-                </div>
-
-                <div className='box'>
-                    <img src={Bread} alt="bread" className='preview'/>
-                    <div className='clipBox'>
-                        <video src="/video/bread.mp4" muted loop playsInline />
-                    </div>
-                </div>
-
-                <div className='box'>
-                    <img src={Halloween} alt="Halloween" className='preview'/>
-                    <div className='clipBox'>
-                        <video src="/video/halloween.mp4" muted loop playsInline />
-                    </div>
-                </div>
-
+                {vocabularyList.map((item) => (
+                    // 核心关联点：在这里调用子组件，把 word 和 img 传过去
+                    <DynamicWordBox
+                        key={item.word}
+                        word={item.word}
+                        previewImg={item.img}
+                    />
+                ))}
             </div>
 
+            {/* 左右切换按钮 */}
             <div className='buttons'>
                 <span className='prev' onClick={handlePrev}>&lt;</span>
                 <span className='next' onClick={handleNext}>&gt;</span>

@@ -6,9 +6,7 @@ import mediapipe as mp
 from tqdm import tqdm
 import config  # 确保同目录下有 config.py
 
-# =============================
 # 初始化 MediaPipe Holistic
-# =============================
 mp_holistic = mp.solutions.holistic
 holistic = mp_holistic.Holistic(
     static_image_mode=False,
@@ -16,9 +14,7 @@ holistic = mp_holistic.Holistic(
     smooth_landmarks=True
 )
 
-# =============================
 # 提取视频片段特征（指定帧区间）
-# =============================
 def extract_features(video_path, start_frame, end_frame):
     cap = cv2.VideoCapture(video_path)
     frames_data = []

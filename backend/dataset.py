@@ -1,13 +1,16 @@
-# src/dataset.py
-import torch
-from torch.utils.data import Dataset
+# src/dataset.py  —— MindSpore 版
 import numpy as np
 import os
 import random
 import config
-from core_preprocess import to_double_relative_with_velocity 
+from core_preprocess import to_double_relative_with_velocity
 
-class WLASLDataset(Dataset):
+
+class WLASLDataset:
+    """
+    可迭代的数据集类，供 mindspore.dataset.GeneratorDataset 使用。
+    每次 __getitem__ 返回 (data: np.float32, label: np.int32)。
+    """
     def __init__(self, map_file, mode='train'):
         """
         map_file: train_map_300.txt / val_map_300.txt / test_map_300.txt
@@ -25,10 +28,8 @@ class WLASLDataset(Dataset):
         self.std  = None
 
         # 自动查找 double_vel mean/std
-        mean_name = "global_mean_300_double_vel.npy"
-        std_name  = "global_std_300_double_vel.npy"
-        mean_path = os.path.join(config.DATA_ROOT, mean_name)
-        std_path  = os.path.join(config.DATA_ROOT, std_name)
+        mean_path = config.GLOBAL_MEAN_PATH
+        std_path  = config.GLOBAL_STD_PATH
         if os.path.exists(mean_path):
             self.mean = np.load(mean_path).astype(np.float32)
             self.std  = np.load(std_path).astype(np.float32)
@@ -56,26 +57,26 @@ class WLASLDataset(Dataset):
     def __getitem__(self, idx):
         line = self.lines[idx].strip()
         npy_path, label_str = line.split(',')
-        label=int(label_str)
+        label = int(label_str)
         fname = os.path.basename(npy_path)
-        full_path = os.path.join(config.DATA_ROOT, "processed_features_300", fname)
+        full_path = os.path.join(config.SAVE_NPY_DIR, fname)
         if not os.path.exists(full_path):
             full_path = os.path.join(config.DATA_ROOT, fname)
 
         try:
             raw = np.load(full_path).astype(np.float32)
-
         except Exception as e:
             # 异常时返回全0特征+真实label
             print(f"⚠️ [{self.mode}] Failed to load {full_path}: {e}")
-            return torch.zeros((self.seq_len, 268)), torch.tensor(label, dtype=torch.long)
+            return (np.zeros((self.seq_len, 268), dtype=np.float32),
+                    np.array(label, dtype=np.int32))
 
-        # 数据增强 (训练集才做),先对坐标特征做缩放和增加噪声，防止破坏速度的物理意义
+        # 数据增强 (训练集才做)
         if self.mode == 'train':
             raw = self._augment(raw)
 
         # 双重相对坐标+速度
-        data = to_double_relative_with_velocity(raw)      
+        data = to_double_relative_with_velocity(raw)
 
         # 归一化
         if self.mean is not None:
@@ -90,4 +91,5 @@ class WLASLDataset(Dataset):
             pad = np.zeros((self.seq_len - T, data.shape[1]), dtype=np.float32)
             data = np.concatenate([data, pad], axis=0)
 
-        return torch.from_numpy(data), torch.tensor(int(label), dtype=torch.long)
+        return data.astype(np.float32), np.array(label, dtype=np.int32)
+
