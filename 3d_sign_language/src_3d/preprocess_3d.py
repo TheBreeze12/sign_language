@@ -34,7 +34,7 @@ def init_worker():
     global global_hands
     mp_hands = mp.solutions.hands
     global_hands = mp_hands.Hands(
-        static_image_mode=False, 
+        static_image_mode=False,
         max_num_hands=2,
         min_detection_confidence=config_3d.MP_DETECTION_CONFIDENCE,
         min_tracking_confidence=config_3d.MP_TRACKING_CONFIDENCE
@@ -48,13 +48,13 @@ def extract_bbox_from_landmarks(landmarks, image_width, image_height):
     """
     if not landmarks:
         return None
-        
+
     x_coords = [np.clip(lm.x * image_width, 0, image_width-1) for lm in landmarks.landmark]
     y_coords = [np.clip(lm.y * image_height, 0, image_height-1) for lm in landmarks.landmark]
-    
+
     x_min, x_max = min(x_coords), max(x_coords)
     y_min, y_max = min(y_coords), max(y_coords)
-    
+
     return [x_min, y_min, x_max, y_max]
 
 
@@ -64,27 +64,27 @@ def expand_and_clamp_bbox(bbox, expand_ratio, image_width, image_height):
     """
     if bbox is None:
         return None, None
-        
+
     x_min, y_min, x_max, y_max = bbox
     width = x_max - x_min
     height = y_max - y_min
     center_x = x_min + width / 2
     center_y = y_min + height / 2
-    
+
     # S2HAND 喜欢正方形输入，取最大边
     max_side = max(width, height) * expand_ratio
-    
+
     # 计算最终裁剪区域
     new_x_min = int(center_x - max_side / 2)
     new_y_min = int(center_y - max_side / 2)
-    
+
     # 原始坐标 = (裁剪后坐标 / IMAGE_SIZE) * max_side + new_x_min
     meta_params = {
         "offset": [new_x_min, new_y_min],
         "scale": max_side,
         "original_size": [image_width, image_height]
     }
-    
+
     # 实际裁剪边界需限制在图像内
     crop_box = [
         max(0, new_x_min),
@@ -92,7 +92,7 @@ def expand_and_clamp_bbox(bbox, expand_ratio, image_width, image_height):
         min(image_width - 1, int(center_x + max_side / 2)),
         min(image_height - 1, int(center_y + max_side / 2))
     ]
-    
+
     return crop_box, meta_params
 
 def interpolate_missing_bboxes(bboxes):
@@ -101,21 +101,21 @@ def interpolate_missing_bboxes(bboxes):
     """
     bboxes_arr = np.array([b if b is not None else [np.nan]*4 for b in bboxes], dtype=np.float64)
     n = len(bboxes_arr)
-    
+
     valid_indices = np.where(~np.isnan(bboxes_arr[:, 0]))[0]
-    
+
     if len(valid_indices) == 0:
         return None # 一帧都没检测到
-    
+
     # 如果只有一帧或者前面有缺失，进行外推（直接复制最近的有效帧）
     for i in range(4):
         # 内部缺失使用线性插值
         bboxes_arr[:, i] = np.interp(
-            np.arange(n), 
-            valid_indices, 
+            np.arange(n),
+            valid_indices,
             bboxes_arr[valid_indices, i]
         )
-        
+
     return bboxes_arr.astype(int).tolist()
 
 def smooth_bboxes(bboxes, sigma=config_3d.SIGMA):
@@ -126,43 +126,43 @@ def smooth_bboxes(bboxes, sigma=config_3d.SIGMA):
     """
     if bboxes is None or len(bboxes) < 3:
         return bboxes
-    
+
     bboxes_arr = np.array(bboxes, dtype=np.float64)
     smoothed_bboxes = np.zeros_like(bboxes_arr)
-    
+
     # 分别对 x_min, y_min, x_max, y_max 进行平滑
     for i in range(4):
         smoothed_bboxes[:, i] = gaussian_filter1d(bboxes_arr[:, i], sigma=sigma)
-    
+
     return smoothed_bboxes.tolist()
 
 def save_hand_sequence(frames, bboxes_and_metas, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     metadata = []
-    
+
     for i, (image, item) in enumerate(zip(frames, bboxes_and_metas)):
         bbox, meta = item
         x_min, y_min, x_max, y_max = bbox
         crop_img = image[y_min:y_max+1, x_min:x_max+1]
-        
+
         if crop_img.size == 0:
             continue
 
         # 缩放
         resized_img = cv2.resize(crop_img, (config_3d.IMAGE_SIZE, config_3d.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
-        
+
         save_path = f"frame_{i:04d}.jpg"
         cv2.imwrite(os.path.join(output_dir, save_path), cv2.cvtColor(resized_img, cv2.COLOR_RGB2BGR))
-        
+
         # 存入本帧元数据
         meta["frame_idx"] = i
         meta["file_name"] = save_path
         metadata.append(meta)
-    
+
     # 保存该手部序列的完整索引信息
     with open(os.path.join(output_dir, "meta.json"), "w") as f:
         json.dump(metadata, f, indent=4)
-    
+
     return len(metadata) > 0
 
 # 核心处理流程
@@ -173,21 +173,21 @@ def process_video_task(args):
     """
     global global_hands
     video_file, gloss_label = args
-    
+
     vid_path = os.path.join(config_3d.VIDEO_DIR, video_file)
     video_id = os.path.splitext(video_file)[0]
     # 输出路径: HAND_CROP_DIR / Gloss / VideoID
     output_dir_base = os.path.join(config_3d.HAND_CROP_DIR, gloss_label, video_id)
-    
+
     if not os.path.exists(vid_path):
         return False, video_id, f"Video not found: {vid_path}"
-        
+
     try:
         # 1. 完整读取视频所有帧 (1-2秒短视频直接全读进内存更高效)
         cap = cv2.VideoCapture(vid_path)
         if not cap.isOpened():
             return False, video_id, "Failed to open video"
-            
+
         all_frames = []
         while True:
             ret, frame = cap.read()
@@ -195,13 +195,13 @@ def process_video_task(args):
                 break
             all_frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         cap.release()
-        
+
         total_frames = len(all_frames)
         if total_frames < 8: # 极度过短的视频直接放弃
-            return False, video_id, f"Video too short ({total_frames} frames)"        
-        
+            return False, video_id, f"Video too short ({total_frames} frames)"
+
         raw_bboxes_R, raw_bboxes_L = [], []
-        
+
         #初始化身份记录本（存储上一帧的中心点）
         last_pos = {"R": None, "L": None}
         lost_frames = {"R": 0, "L": 0}  # 新增
@@ -221,7 +221,7 @@ def process_video_task(args):
                     cx, cy = box[0] + (box[2]-box[0])/2, box[1] + (box[3]-box[1])/2
 
                     current_detected_hands.append({"box": box, "center": (cx, cy)})
-                
+
                 # 身份初始化（第一帧或丢失后重新找回）
                 if last_pos["R"] is None and last_pos["L"] is None:
                     # 按 X 坐标排序，左边给 R，右边给 L
@@ -235,7 +235,7 @@ def process_video_task(args):
                     else:
                         bbox_R = current_detected_hands[0]["box"]
                         bbox_L = current_detected_hands[-1]["box"]
-                
+
                 # 实时追踪（身份继承逻辑）
                 else:
                     if len(current_detected_hands) == 1:
@@ -243,12 +243,12 @@ def process_video_task(args):
                         dist_to_R = np.linalg.norm(np.array(hand["center"]) - np.array(last_pos["R"])) if last_pos["R"] else 9999
 
                         dist_to_L = np.linalg.norm(np.array(hand["center"]) - np.array(last_pos["L"])) if last_pos["L"] else 9999
-                    
+
                         if dist_to_R < dist_to_L:
-                            if bbox_R is None: 
+                            if bbox_R is None:
                                 bbox_R = hand["box"] # 贴上 R 标签
                         else:
-                            if bbox_L is None: 
+                            if bbox_L is None:
                                 bbox_L = hand["box"] # 贴上 L 标签
 
                     elif len(current_detected_hands) >= 2:
@@ -263,15 +263,15 @@ def process_video_task(args):
                                     bbox_R = hand["box"]
                                 else:
                                     bbox_L=hand["box"]
-                                    
+
                             else:
-                                if bbox_L is None: 
+                                if bbox_L is None:
                                     bbox_L = hand["box"]
                                 else:
                                     bbox_R=hand["box"]
 
             # 更新记录本，供下一帧使用
-            if bbox_R: 
+            if bbox_R:
                 last_pos["R"] = (bbox_R[0]+(bbox_R[2]-bbox_R[0])/2, bbox_R[1]+(bbox_R[3]-bbox_R[1])/2)
 
                 lost_frames["R"] = 0
@@ -281,7 +281,7 @@ def process_video_task(args):
                 if lost_frames["R"] > 2:  # 连续丢失2帧则重置
                     last_pos["R"] = None
 
-            if bbox_L: 
+            if bbox_L:
                 last_pos["L"] = (bbox_L[0]+(bbox_L[2]-bbox_L[0])/2, bbox_L[1]+(bbox_L[3]-bbox_L[1])/2)
 
                 lost_frames["L"] = 0
@@ -291,11 +291,11 @@ def process_video_task(args):
                 if lost_frames["L"] > 2:
                     last_pos["L"] = None
 
-                        
+
             raw_bboxes_R.append(bbox_R)
             raw_bboxes_L.append(bbox_L)
-            
-        
+
+
         # 4. 后处理与自适应保存
         results_report = []
         for side, raw_bboxes in [("R", raw_bboxes_R), ("L", raw_bboxes_L)]:
@@ -303,18 +303,18 @@ def process_video_task(args):
             if not valid_indices:
                 results_report.append(f"{side}:No_Detection")
                 continue
-                
+
             start_f, end_f = valid_indices[0], valid_indices[-1]
             active_len = end_f - start_f + 1
-            if active_len < 8: 
+            if active_len < 8:
                 continue
 
             target_count = max(16, min(active_len, 64))
             sample_indices = np.round(np.linspace(start_f, end_f, target_count)).astype(int).tolist()
-            
+
             sampled_frames = [all_frames[idx] for idx in sample_indices]
             sampled_bboxes = [raw_bboxes[idx] for idx in sample_indices]
-            
+
             interp_bboxes = interpolate_missing_bboxes(sampled_bboxes)
             if interp_bboxes:
                 smoothed_bboxes = [[int(v) for v in row] for row in smooth_bboxes(interp_bboxes, sigma=config_3d.SIGMA)]
@@ -326,15 +326,15 @@ def process_video_task(args):
                     if c_box is None: c_box = [0, 0, 223, 223]
                     c_meta["original_start_frame"] = start_f
                     combined_data.append((c_box, c_meta))
-                
+
                 success = save_hand_sequence(sampled_frames, combined_data, os.path.join(output_dir_base, side))
                 results_report.append(f"{side}:Success({target_count}f)")
 
         return True, video_id, f"Details: {', '.join(results_report)}"
-        
+
     except Exception as e:
         return False, video_id, str(e)
-    
+
 # 主控入口
 
 def process_dataset():
@@ -349,7 +349,7 @@ def process_dataset():
         with open(target_words_file, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
-                if not line: 
+                if not line:
                     continue
                 word = line.split()[-1].strip().upper()
                 words_needed.add(word)
@@ -357,15 +357,15 @@ def process_dataset():
     else:
         logger.error(f"❌ 找不到词汇表文件: {target_words_file}")
         return
-    
+
     # 读取 ASL Citizen 表格 (TSV 或 CSV 格式)
     # 获取 CSV 路径（确保 config_3d.py 里的 CSV_PATH 指向了 splits/ 下的文件）
     csv_path = getattr(config_3d, 'CSV_PATH', None)
-    
+
     if not csv_path or not os.path.exists(csv_path):
         logger.error(f"Cannot find CSV file: {csv_path}")
         return
-        
+
     tasks = []
     # 使用','分隔符读取
     with open(csv_path, 'r', encoding='utf-8') as f:
@@ -373,29 +373,29 @@ def process_dataset():
         for row in reader:
             video_file = row.get('Video file')
             gloss = row.get('Gloss')
-            
+
             # 如果当前视频的词语还在我们的名单中
             if video_file and gloss and (gloss in words_needed):
                 current_gloss_upper = gloss.strip().upper()
-                
+
                 if current_gloss_upper in words_needed:
                     tasks.append((video_file, gloss)) # 塞进任务列表时保留原始 gloss 避免路径出错
                     # 抓到一个，立刻把它从通缉名单中划掉
                     words_needed.remove(current_gloss_upper)
-            
+
             # 极致优化：如果 300 个词都找齐了，直接提前结束读取 CSV，不用把几十万行读完
             if len(words_needed) == 0:
                 logger.info("🎉 300 个词汇的样本已全部集齐，提前结束扫描！")
                 break
-                
+
     logger.info(f"Total videos to process: {len(tasks)} (每个词语仅保留1个视频)")
 
 
 
     logger.info(f"🚀 正式任务开始: 正在处理 {len(tasks)} 个视频样本。")
-    
+
     success_count, fail_count = 0, 0
-    
+
     #记得这里改回来
     with Pool(processes=8,initializer=init_worker) as pool:
         results = list(tqdm(pool.imap_unordered(process_video_task, tasks), total=len(tasks), desc="Processing Videos"))
@@ -408,7 +408,7 @@ def process_dataset():
                     fail_count += 1
                     f_fail.write(f"{vid}\t{msg}\n")
                     logger.warning(f"Failed: {vid} - {msg}")
-                    
+
     logger.info("=" * 40)
     logger.info(f"Total Attempted: {len(tasks)}")
     logger.info(f"Successful: {success_count}")
@@ -418,7 +418,7 @@ def process_dataset():
     if len(words_needed) > 0:
         logger.warning(f"⚠️ 警告：有 {len(words_needed)} 个词语在 CSV 中没有找到对应的视频！")
         logger.warning(f"未找到的词语: {words_needed}")
-        
+
     logger.info("Preprocessing completed.")
 
 if __name__ == "__main__":

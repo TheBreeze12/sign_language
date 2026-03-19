@@ -27,3 +27,6 @@ misc
 # 5. 忽略虚拟环境
 venv/
 env/
+
+node_modules/
+.history/
