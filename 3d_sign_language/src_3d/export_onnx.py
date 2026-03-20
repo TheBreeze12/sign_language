@@ -10,6 +10,7 @@ import os
 import sys
 import argparse
 import numpy as np
+import warnings
 
 # Some third-party deps in S2HAND may load duplicate OpenMP runtimes on Windows.
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
@@ -38,8 +39,9 @@ class ConfigStub:
         self.regress_mode = "mano"
         self.use_mean_shape = False
         self.use_2d_as_attention = False
-        # 非 NR 可跳过 neural_renderer 依赖
-        self.renderer_mode = "none"
+        # 使用 'NR' 让 models_new.Model 在 __init__ 中创建 self.renderer_NR 属性
+        # 在当前配置下该属性会是 None，不会真正调用神经渲染器。
+        self.renderer_mode = "NR"
         self.texture_mode = "surf"
         self.image_size = 224
         self.train_datasets = ["FreiHand"]
@@ -92,16 +94,21 @@ def patch_numpy_for_chumpy():
 
 
 class OnnxExportWrapper(torch.nn.Module):
-    """包装 S2HAND 前向，固定导出输出为 joints/vertices。"""
+    """包装 S2HAND 前向，导出关键的 3D 手部参数。"""
 
     def __init__(self, model):
         super().__init__()
         self.model = model
 
     def forward(self, images):
+        # models_new.forward(task='test') 会走 evaluate_iou 分支（该仓库缺失该方法）
+        # 导出时应走 predict_singleview 分支，因此使用 task='train'。
         outputs = self.model(images=images, task="train", requires=["joints", "verts"])
-        joints = outputs["joints"]
-        vertices = outputs["vertices"]
+
+        joints = outputs["joints"]           # (B, 21, 3)
+        vertices = outputs["vertices"]       # (B, 778, 3)
+
+        # 返回最核心的两个输出
         return joints, vertices
 
 
@@ -123,7 +130,10 @@ def main():
         return
 
     print("\n[1/3] Importing PyTorch model definition...")
-    patch_numpy_for_chumpy()
+    # 兼容旧 chumpy 别名时抑制 numpy FutureWarning，避免污染导出日志。
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        patch_numpy_for_chumpy()
     from examples.models_new import Model
 
     print("\n[2/3] Building model and loading .pth weights...")
@@ -135,6 +145,9 @@ def main():
     print("\n[3/3] Exporting ONNX...")
     wrapper = OnnxExportWrapper(model).eval()
     dummy_input = torch.randn(args.batch_size, 3, args.image_size, args.image_size, dtype=torch.float32)
+
+    # 对应 OnnxExportWrapper 的 2 个输出：joints, vertices
+    output_names = ["joints", "vertices"]
 
     dynamic_axes = {
         "input": {0: "batch"},
@@ -149,32 +162,13 @@ def main():
             args.output,
             dynamo=False,
             input_names=["input"],
-            output_names=["joints", "vertices"],
+            output_names=output_names,
             dynamic_axes=dynamic_axes,
             opset_version=args.opset,
             do_constant_folding=True,
         )
 
     print(f"✓ ONNX model exported to: {args.output}")
-
-
-class ConfigStub:
-    """模拟配置参数"""
-    def __init__(self):
-        self.train_requires = ['joints', 'verts', 'heatmaps', 'lights']
-        self.test_requires = ['joints', 'verts']
-        self.regress_mode = 'mano'
-        self.use_mean_shape = False
-        self.use_2d_as_attention = False
-        self.renderer_mode = 'NR'
-        self.texture_mode = 'surf'
-        self.image_size = 224
-        self.train_datasets = ['FreiHand']
-        self.use_pose_regressor = False
-        self.pretrain_model = None
-        self.pretrain_segmnet = None
-        self.pretrain_texture_model = None
-        self.pretrain_rgb2hm = None
 
 
 if __name__ == "__main__":
