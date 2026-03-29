@@ -1,0 +1,172 @@
+### 一 、初始维数怎么计算的(134维)
+
+1. MediaPipe Holistic 模型标准的 Pose 检测包含 33 个关键点。
+2. 但是本项目主要做的手语（上半身），0-24点包含全部上半身
+3. mp标准输出左右手分别21个点
+4. x,y计算逻辑：mp提供了深度z信息，但是手语一般仅需要2维，即x，y坐标，降低模型复杂度，便于训练
+
+### 二、视频预处理流程（extract_features）
+
+1. 通过start_frame,end_frame指定帧区间
+2. 通过for循环限制0-25，只选取pose的上半身，其余选择左右手全部21点，未识别到的用（0，0）填充
+3. 选取动态视频模式，**基于视频的帧间关联性**来跟踪关键点
+4. lm_x,lm_y指相对画面（归一化）的坐标，避免因为画面大小不同导致识别错误
+
+### 三、参数的标准化(Z-score标准化)
+
+1. 通过正态分布公式对每一列即每一个手语特征做标准化，解决不同数值取值范围不同的问题，防止比如模型对坐标分配过多注意力而忽略速度参数
+
+### 四、原始json数据流转
+
+1. json格式：{"video_001": {"subset":"train", "action":[0,10,50]}}，标明video_id,subset_name(train.val,test),label,start_frame,end_frame
+2. extract_features函数处理生成video_id.npy文件，shape为有效帧*134（用for循环遍历），每一个视频对应一个npy,用video_id区分
+3. 按subset类型分类，subsets[subset]存储{npy_save_path},{label}，比如上面的例子train列表里面是npy_save_path,label
+4. {subset_name}_map_300.txt 这个map_file里面每一行存储npy_save_path,label,有三个train,val,test
+5. 训练集归一化，测试 / 验证集也用训练集的 mean/std，避免数据泄露
+
+### 五、双重相对坐标处理
+
+1. mp点位图(全身+手部)![1771846348616](image/thinkng/1771846348616.png)
+
+   ![1771846517399](image/thinkng/1771846517399.png)
+
+pose:
+
+| 分类         | 编号范围 | 包含核心部位           | 特征维度（x+y） |
+| ------------ | -------- | ---------------------- | --------------- |
+| 头部关键点   | 0-10     | 鼻子、眼睛、耳朵、嘴巴 | 11×2=22 维     |
+| 上半身关键点 | 11-24    | 肩膀、手肘、手腕、髋部 | 14×2=28 维     |
+| 下半身关键点 | 25-32    | 膝盖、脚踝、脚部       | 8×2=16 维      |
+
+hands:
+
+| 分类                        | 编号范围 | 包含核心部位               | 特征维度（x+y） |
+| --------------------------- | -------- | -------------------------- | --------------- |
+| 手部基准点                  | 0        | 手腕（掌根）               | 1×2=2 维       |
+| 大拇指                      | 1-4      | 大拇指 4 个关节 + 指尖     | 4×2=8 维       |
+| 四指（食 / 中 / 无名 / 小） | 5-20     | 4 根手指各 4 个关节 + 指尖 | 16×2=32 维     |
+
+2. 基准点(计算相对坐标)
+
+   pose[0]:鼻子
+
+   hands[0]:左右手腕
+3. 以nose,l_wrist,r_wrist为基准点，计算相对坐标
+
+```
+ pose_rel = pose - nose
+    lh_rel = lh - l_wrist
+    rh_rel = rh - r_wrist
+```
+
+### 六、速度的处理（维度扩展为268）
+
+1. 计算后一帧-前一帧(diff)，此时T变为T-1，用坐标的差值大小作为速度
+2. 第一帧补0，统一维度，变为T
+3. 将速度参数传入最终维度，134*2=268
+4. 提高了对不同运动趋势的敏感度(速度特征)，能很好地区分快抬手与慢抬手
+
+### 七、增加缩放和高斯噪声增强泛化性
+
+1. 对134维姿态与手部进行90%-110%的随机缩放（模拟人物距离摄像头稍远稍近的微小缩放）
+2. 增加少量噪声（mean=0，std=0.005）（模拟mp检测关键点的微小误差）
+3. 让模型更多学习动作而不是记住某个人的坐标偏移与体型
+4. 要先增加噪声再引入速度，防止破坏速度的物理意义(缩放会导致速度缩放，噪声让速度失真)
+
+### 八、对固定64帧的处理（可以优化不足补零填充的问题）
+
+1. 超过64帧：均匀采样（如128帧隔2帧采样一次）
+2. 不足64帧：原序列后补0补够64帧（有问题，这样做会引入无动作噪声），最好使用线性插值
+3. 原视频按照json切分，只有在训练时通过dataloader进行固定64帧处理
+
+### 九、注意力机制
+
+1. 每一帧通过attn函数生成一个分数，利用softmax函数进行归一化
+2. 求和，每个样本64帧进行求和操作，最终能为关键动作分配多的注意力（通过关键动作高分数高权重实现）
+3. 仅有attention：仅能聚焦关键帧，但是只有局部信息，无法判断完整动作
+
+### 十、BiLSTM（双向长短期记忆网络）
+
+1. LSTM核心原理：通过三个门控解决梯度消失（长序列时丢失前面帧的信息）与短期记忆（只能记住最近的帧，无法捕捉长距离时序依赖）
+   - forget gate:过滤无关记忆
+   - input gate:记录关键的新信息
+   - output gate:传递当前有用的信息到下一层
+2. LSTM存在的问题：只能利用前面的帧预测后面的帧，无法实现姿态识别需要识别完整动作的要求
+3. BiLSTM的改进：将每个帧隐藏状态进行扩展，扩展为前向+后向隐藏状态，学习过去+未来到当前的信息，比如：第30帧的特征包含 帧 1-29 的过去信息和 帧 31-64 的未来信息—— 完整捕捉全过程。
+4. 为什么选用BiLSTM:
+
+- 普通 LSTM 处理第 30 帧（挥手）：只能知道前面 29 帧抬手了，但不知道 后面 34 帧会不会放下，无法确定是不是挥手
+- BiLSTM 处理第 30 帧：既知道 前面抬手，又知道 后面放下，能确定这是挥手动作，而非抬手不动
+
+5. BiLSTM如果没有attention的问题：仅能捕捉完整的时序上下文，但是为所有动作分配相同注意力，导致关键帧被忽略稀释
+
+### 十一、BiLSTM+Attention的完整模型定义
+
+1. 首先BiLSTM使每一帧包含完整的动作上下文 ，shape[B, Seq, Hidden*2]，双向使hidden=hidden *2                                                                                            ``out, _ = self.lstm(x)``
+2. LayerNorm 稳定特征分布，将256维数据做归一化，避免某些帧的特征值过大 / 过小，让attention能够平等打分（与前面数据预处理不同,前面预处理是为了避免因为取值范围不同导致后面权重计算问题）
+   `self.ln = nn.LayerNorm(hidden_size*2)`
+3. attention接收到BiLSTM输入，为关键帧分配高权重，同时使关键帧有了过去与未来的上下文,方法是通过求和，高权重的关键帧会分配多的注意力
+   ``context = self.attention(out)  # [B,256]``
+4. 全连接层做分类
+   `out = self.fc1(context)  # [B,128] → 压缩维度 `    `out = self.bn1(out)      # 归一化               out = self.relu(out)     # 非线性变换            out = self.dropout(out)  # 防过拟合              out = self.fc2(out)      # [B,300] → 输出类别得分`
+
+### 十二、模型训练
+
+1. 损失函数：CrossEntropyLoss()，分类任务通用损失函数，输出Logits,内部会使用softmax变为one-hot encoding计算损失
+2. 优化器：Adam优化器，自适应学习率，梯度波动大的参数如注意力权重自动降低学习率避免震荡，梯度稳定参数如隐藏层权重保持学习率使之收敛
+3. 训练策略：ReduceLROnPlateau调度器，我们的训练任务不是最小化损失函数，而是最大化val set准确率，在达到条件时学习率减半（5轮val accuracy没有提升）
+4. 开启pin_memory=True，使cpu传输数据到gpu与gpu进行计算能并行处理，突破I/O瓶颈
+5. loss计算这一个batch平均损失，由于可能存在最后一个batch不足64的问题，mean loss*batch size求和最后/batch size
+
+### 十三、如何进行推理
+
+1. 平滑动作：视频实时数据流有轻微抖动，利用这一个公式计算当前位置，将当前帧数据与上一帧数据按比例（**$\alpha=0.6$**）融合，从而滤除高频噪声，让关键点的移动看起来更平稳
+
+```
+    self.alpha * current_landmarks + (1 - self.alpha) * self.prev_landmarks
+```
+
+2. 与训练时相同，首先加载MediaPipe Holistic，这里我将model_complexity调高到2，更精准识别手部，提取手部关键点
+3. 和训练时一样加载BiLSTM + Attention 模型(所有数据在config.py中)，便于维护，推理时将drop_out设置为0
+4. 加载mean std的归一化参数，加载标签映射
+5. 首先将一张图片提取134维特征，然后增加速度参数，扩展为268维，最后线性插值到64帧（同训练）
+6. 进行推理：将梯度设置为0，利用softmax，输出最可能结果标号与置信度（torch.max(probs,dim=1))
+7. 将mp镜像，就像照镜子一样，在画面画出骨架线，点击屏幕开始录制，再次点击结束录制，并识别出结果。打印出词语与置信度，以及当前采样多少帧
+
+## 后端逻辑
+
+1. 连接mysql，不存在时自动创建sign_language_db数据库，里面只有sign_assets表
+2. 创建sign_assets表:
+
+| 字段名               | 作用                                             |
+| -------------------- | ------------------------------------------------ |
+| id                   | 自增主键（唯一 ID）                              |
+| word_name            | **手语词条** （如 HELP、FATHER、ACCIDENT） |
+| folder_name          | 服务器上真实文件夹名                             |
+| total_frames         | 该词条有多少个 `.glb`3D 模型文件               |
+| created_at           | 创建时间                                         |
+| updated_at           | 更新时间（自动更新）                             |
+| unique_key:word_name | 唯一索引：**词条不能重复(去重)**           |
+
+3. 自动更新：如果词条不存在新增词条，词条存在的话更新路径与帧数（数据没有变化不会更新），我们只操作：word_name,folder_name,total_frames。sync_glb_to_db()运行时，将glb_root递归扫描，保存所有glb文件路径到数据库
+4. 最终表结构：
+
+| id | word_name | folder_name     | total_frames | created_at          | updated_at          |
+| -- | --------- | --------------- | ------------ | ------------------- | ------------------- |
+| 1  | HELLO     | HELLO_123-HELLO | 30           | 2026-03-15 12:00:00 | 2026-03-15 12:00:00 |
+
+5. predict接口：复用推理流水线，opencv逐帧解码视频+提取134维坐标+平滑化+双重相对坐标 + 线性抽样 → 模型推理
+6. 大小写与序号问题：glb的序号与idx2name不同，但是我是使用查找的方式，没有影响。idx2name里面是小写，所以查询到的word是小写（返回前端的也是）。但是glb是大写，所以存储到数据库中时word_name要大写匹配glb的名字
+
+   ```
+   label_text = self.label_map.get(pred_class, f"Class {pred_class}")
+           return label_text, conf
+   ```
+7. downloads接口：通过递归的拼接url:http://{request.host}/result_3d/glb_models/{rel},将这些url返回前端，前端访问这些url时，就能找到本地文件
+8. 通过 `serve_glb` + `send_from_directory`，将本地文件映射为url：http://{request.host}/result_3d/glb_models/{rel}
+
+### 十四、docker
+1. .env 文件路径：backend/config.py 里添加了找 .env 文件的逻辑，它会先找 backend/.env，如果没找到就去项目的根目录找 .env。由于 docker-compose 在运行时通常会将环境变量直接注入或者挂载到容器内，也在 docker-compose.yml 中配置了读取根目录下的 .env 并增加了一个专门的环境变量 ENV_PATH=/app/.env。
+2. DATA_ROOT 数据卷：docker-compose.yml 的 environment 里补上了对 DATA_ROOT、GLB_ROOT、RESULT_DIR 等路径在 Docker 内部对应路径的环境变量覆盖配置。
+3. 依赖补全：补全了 requirements.txt 以满足 Flask 运行所需的全部依赖。
+4. 相关的 Dockerfile 和 docker-compose.yml 已经完成。如果要运行，把项目根目录（f:\sign_language）下的 .env.example 复制一份改名为 .env，填入你的 MySQL 密码，然后运行 docker-compose up --build 即可。

@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      # Map Vite's default dev port to Nginx's port 80 inside container
+      - "5173:80"
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      # Build from project root to allow copying requirements.txt
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    volumes:
+      # Use relative paths for portability across different servers
+      - ./data:/data:ro
+      - ./result:/result:ro
+      - ./result_3d/glb_models:/result_3d:ro
+    environment:
+      # Automatically pass in the dynamically generated relative paths for Docker
+      - DATA_ROOT=/data
+      - RESULT_DIR=/result
+      - MODEL_PATH=/result/checkpoints/best_model_300.pth
+      - MEAN_PATH=/data/global_mean_300_double_vel.npy
+      - STD_PATH=/data/global_std_300_double_vel.npy
+      - IDX2NAME_PATH=/data/idx2name_300.txt
+      - GLB_ROOT=/result_3d
+      - ENV_PATH=/app/.env # Point explicitly to the root env inside docker if copied
+
+      # Database setup overrides
+      - DB_HOST=${DB_HOST:-host.docker.internal}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-sign_language_db}
+
+    # Optional: Enable GPU access for PyTorch inside the container
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

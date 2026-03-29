@@ -1,0 +1,40 @@
+# 1. 忽略运行结果和日志
+result/
+logs/
+outputs/
+__pycache__/
+*.pyc
+result_3d/
+.pytest_cache
+
+# 2. 忽略 IDE 配置
+.vscode/
+.idea/
+._.DS_Store
+.DS_Store
+
+# 3. 忽略大数据集
+data/
+
+# 4. 忽略模型权重和骨架文件 (这是最核心的修改)
+# 绝对不要把几个 GB 的 pth 或 pkl 传到 GitHub
+*.pth
+checkpoint.pth
+checkpoints/
+*.pkl
+*.zip
+misc
+*.glb
+*.mp4
+
+# 5. 忽略虚拟环境
+venv/
+env/
+
+
+# 6. 忽略依赖
+node_modules/
+**/node_modules
+**/.env
+
+webgl_build/

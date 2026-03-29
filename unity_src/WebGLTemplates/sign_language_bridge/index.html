@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{{ PRODUCT_NAME }}}</title>
+    <style>
+      html,
+      body,
+      #unity-container,
+      #unity-canvas {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #07101b;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="unity-container">
+      <canvas id="unity-canvas"></canvas>
+    </div>
+
+    <script>
+      const canvas = document.querySelector('#unity-canvas');
+      let unityInstance = null;
+      const queuedMessages = [];
+
+      function forwardToUnity(methodName, value) {
+        if (!unityInstance) {
+          queuedMessages.push({ methodName, value });
+          return;
+        }
+
+        unityInstance.SendMessage('GestureSyncBridge', methodName, value);
+      }
+
+      function flushQueuedMessages() {
+        while (unityInstance && queuedMessages.length > 0) {
+          const message = queuedMessages.shift();
+          unityInstance.SendMessage('GestureSyncBridge', message.methodName, message.value);
+        }
+      }
+
+      window.addEventListener('message', (event) => {
+        const data = event.data;
+        if (!data || !data.type) {
+          return;
+        }
+
+        if (data.type === 'set-source-path') {
+          forwardToUnity('SetGestureSourcePath', data.payload.jsonPath || '');
+        }
+
+        if (data.type === 'set-playback-time') {
+          forwardToUnity('SetPlaybackTimeMs', String(data.payload.currentTimeMs || 0));
+        }
+
+        if (data.type === 'set-playback-state') {
+          forwardToUnity('SetPlaybackState', String(Boolean(data.payload.playing)));
+        }
+
+        if (data.type === 'set-playback-rate') {
+          forwardToUnity('SetPlaybackRate', String(data.payload.playbackRate || 1));
+        }
+      });
+    </script>
+
+    <script src="Build/{{{ LOADER_FILENAME }}}"></script>
+    <script>
+      createUnityInstance(canvas, {
+        dataUrl: 'Build/{{{ DATA_FILENAME }}}',
+        frameworkUrl: 'Build/{{{ FRAMEWORK_FILENAME }}}',
+        codeUrl: 'Build/{{{ CODE_FILENAME }}}',
+        streamingAssetsUrl: 'StreamingAssets',
+        companyName: '{{{ COMPANY_NAME }}}',
+        productName: '{{{ PRODUCT_NAME }}}',
+        productVersion: '{{{ PRODUCT_VERSION }}}',
+      }).then((instance) => {
+        unityInstance = instance;
+        flushQueuedMessages();
+        window.parent?.postMessage({ type: 'unity-ready' }, '*');
+      });
+    </script>
+  </body>
+</html>
